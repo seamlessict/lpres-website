@@ -102,8 +102,10 @@ function AppRoutes() {
 
         {/* Marketplace Admin routes */}
         <Route path="/marketplace-admin/login" element={<MarketplaceAdminLogin />} />
+        <Route path="/marketplace-admin/*" element={<MarketplaceAdminDashboard />} />
         <Route path="/marketplace-admin" element={<MarketplaceAdminDashboard />} />
         <Route path="/marketplace/admin/login" element={<MarketplaceAdminLogin />} />
+        <Route path="/marketplace/admin/*" element={<MarketplaceAdminDashboard />} />
         <Route path="/marketplace/admin" element={<MarketplaceAdminDashboard />} />
 
         {/* Admin routes */}
@@ -140,8 +142,10 @@ function AppRoutes() {
 
       {/* Marketplace Admin routes */}
       <Route path="/marketplace-admin/login" element={<MarketplaceAdminLogin />} />
+      <Route path="/marketplace-admin/*" element={<MarketplaceAdminDashboard />} />
       <Route path="/marketplace-admin" element={<MarketplaceAdminDashboard />} />
       <Route path="/marketplace/admin/login" element={<MarketplaceAdminLogin />} />
+      <Route path="/marketplace/admin/*" element={<MarketplaceAdminDashboard />} />
       <Route path="/marketplace/admin" element={<MarketplaceAdminDashboard />} />
 
       {/* Admin routes */}
