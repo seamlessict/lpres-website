@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 
 
@@ -103,3 +103,170 @@ class ProjectOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Marketplace ───────────────────────────────────────────────
+
+class MarketplaceUserCreate(BaseModel):
+    name: str
+    email: str
+    phone: str
+    password: str
+    whatsapp: Optional[str] = None
+    lga: Optional[str] = "Ilorin East"
+
+
+class MarketplaceUserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class MarketplaceVerificationRequest(BaseModel):
+    email: Optional[Any] = None
+    farm_name: Optional[Any] = None
+    cooperative_name: Optional[Any] = None
+    nin_or_reg_no: Optional[Any] = None
+    lga: Optional[Any] = None
+    id_document_url: Optional[Any] = None
+    notes: Optional[Any] = None
+
+
+class MarketplaceProductCreate(BaseModel):
+    name: str
+    description: str
+    category: str
+    price: dict
+    quantity: dict
+    location: dict
+    images: List[dict] = []
+    specifications: dict = {}
+    seller: dict
+
+
+class MarketplaceProductOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    category: str
+    price: dict
+    quantity: dict
+    location: dict
+    images: List[dict]
+    specifications: dict
+    seller: dict
+    status: str
+    views: int
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class MarketplaceRequestCreate(BaseModel):
+    product_id: str
+    product_name: str
+    product_category: Optional[str] = "General"
+    unit_price: Any = {}
+    requested_qty: Any = "1"
+    estimated_total: Any = {}
+    
+    # Intermediary Facilitation Options
+    include_inspection: bool = False
+    inspection_fee: Optional[Any] = None
+    request_supply_chain: bool = False
+    
+    # Buyer Details
+    buyer_name: str
+    buyer_email: str
+    buyer_phone: str
+    buyer_lga: Optional[str] = "Ilorin East"
+    delivery_location: Optional[str] = None
+    additional_notes: Optional[str] = None
+    
+    # Seller Details (Captured internally for Admin intermediary contact)
+    seller_name: str
+    seller_id: Optional[str] = None
+    seller_contact: Optional[Any] = None
+
+
+class MarketplaceRequestStatusUpdate(BaseModel):
+    status: str
+    admin_notes: Optional[str] = None
+
+
+class MarketplaceRequestOut(BaseModel):
+    id: int
+    request_code: str
+    product_id: str
+    product_name: str
+    product_category: Optional[str]
+    unit_price: dict
+    requested_qty: str
+    estimated_total: dict
+    include_inspection: bool
+    inspection_fee: Optional[dict]
+    request_supply_chain: bool
+    buyer_name: str
+    buyer_email: str
+    buyer_phone: str
+    buyer_lga: str
+    delivery_location: Optional[str]
+    additional_notes: Optional[str]
+    seller_name: str
+    seller_id: Optional[str]
+    seller_contact: Optional[dict]
+    status: str
+    admin_notes: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class MarketplaceAdminLogin(BaseModel):
+    username: str
+    password: str
+
+
+class MarketplaceAdminOut(BaseModel):
+    id: int
+    username: str
+    email: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MarketplaceAnalyticsOut(BaseModel):
+    total_requests: int
+    total_amount: float
+    total_users: int
+    total_products: int
+    active_products: int
+    status_counts: dict
+
+
+class MarketplaceBidCreate(BaseModel):
+    product_id: str
+    product_name: str
+    bidder_name: str
+    bidder_email: str
+    bidder_phone: str
+    bidder_lga: Optional[str] = "Ilorin East"
+    bid_amount: dict
+    offered_qty: str = "1"
+    notes: Optional[str] = None
+    seller_id: Optional[str] = None
+    seller_name: Optional[str] = None
+
+
+class MarketplaceBidStatusUpdate(BaseModel):
+    status: str
+    admin_notes: Optional[str] = None
+
+
+
+

@@ -1,5 +1,5 @@
 [build]
-  command = "cd frontend && npm run build"
+  command = "cd frontend && npm install && npm run build"
   publish = "frontend/dist"
 
 [functions]
@@ -8,7 +8,7 @@
 
 [build.environment]
   VITE_API_URL = ""
-  NODE_VERSION = "18"
+  NODE_VERSION = "20"
 
 # API redirects — must come BEFORE the SPA catch-all
 [[redirects]]
@@ -53,6 +53,16 @@
 [[redirects]]
   from   = "/api/admin/*"
   to     = "/.netlify/functions/admin"
+  status = 200
+
+[[redirects]]
+  from   = "/api/marketplace"
+  to     = "/.netlify/functions/marketplace"
+  status = 200
+
+[[redirects]]
+  from   = "/api/marketplace/*"
+  to     = "/.netlify/functions/marketplace"
   status = 200
 
 # SPA catch-all — must be LAST

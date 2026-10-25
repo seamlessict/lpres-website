@@ -16,13 +16,17 @@ import NewsPage from './pages/NewsPage';
 import NewsArticle from './pages/NewsArticle';
 import ContactPage from './pages/ContactPage';
 import GalleryPage from './pages/GalleryPage';
+import MarketplacePage from './pages/MarketplacePage';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import MarketplaceAdminLogin from './pages/admin/MarketplaceAdminLogin';
+import MarketplaceAdminDashboard from './pages/admin/MarketplaceAdminDashboard';
 import NewsForm from './pages/admin/NewsForm';
 import GalleryManager from './pages/admin/GalleryManager';
 import ProjectsManager from './pages/admin/ProjectsManager';
 import SearchModal from './components/ui/SearchModal';
 import ChatBot from './components/ui/ChatBot';
+import PWAInstallBanner from './components/PWAInstallBanner';
 
 function ScrollAnimator() {
   const { pathname } = useLocation();
@@ -81,48 +85,103 @@ function AdminRoute({ children }) {
   return isAuthenticated ? children : <Navigate to="/admin/login" replace />;
 }
 
+import { isMarketplaceMode } from './utils/env';
+
+function AppRoutes() {
+  const isMarketplace = isMarketplaceMode();
+
+  if (isMarketplace) {
+    return (
+      <Routes>
+        <Route path="/" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+        <Route path="/about" element={<PublicLayout><AboutPage /></PublicLayout>} />
+        <Route path="/contact" element={<PublicLayout><ContactPage /></PublicLayout>} />
+        <Route path="/marketplace" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+        <Route path="/marketplace/register" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+        <Route path="/marketplace/login" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+
+        {/* Marketplace Admin routes */}
+        <Route path="/marketplace-admin/login" element={<MarketplaceAdminLogin />} />
+        <Route path="/marketplace-admin/*" element={<MarketplaceAdminDashboard />} />
+        <Route path="/marketplace-admin" element={<MarketplaceAdminDashboard />} />
+        <Route path="/marketplace/admin/login" element={<MarketplaceAdminLogin />} />
+        <Route path="/marketplace/admin/*" element={<MarketplaceAdminDashboard />} />
+        <Route path="/marketplace/admin" element={<MarketplaceAdminDashboard />} />
+
+        {/* Admin routes */}
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/dashboard" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+        <Route path="/admin/news/new" element={<AdminRoute><NewsForm /></AdminRoute>} />
+        <Route path="/admin/news/:id/edit" element={<AdminRoute><NewsForm /></AdminRoute>} />
+        <Route path="/admin/gallery" element={<AdminRoute><GalleryManager /></AdminRoute>} />
+        <Route path="/admin/projects" element={<AdminRoute><ProjectsManager /></AdminRoute>} />
+        <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
+  }
+
+  return (
+    <Routes>
+      {/* Public routes */}
+      <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
+      <Route path="/about" element={<PublicLayout><AboutPage /></PublicLayout>} />
+      <Route path="/programs" element={<PublicLayout><ProgramsPage /></PublicLayout>} />
+      <Route path="/impact" element={<PublicLayout><ResultsPage /></PublicLayout>} />
+      <Route path="/partners" element={<PublicLayout><PartnersPage /></PublicLayout>} />
+      <Route path="/news" element={<PublicLayout><NewsPage /></PublicLayout>} />
+      <Route path="/news/:slug" element={<PublicLayout><NewsArticle /></PublicLayout>} />
+      <Route path="/contact" element={<PublicLayout><ContactPage /></PublicLayout>} />
+      <Route path="/gallery" element={<PublicLayout><GalleryPage /></PublicLayout>} />
+      <Route path="/marketplace" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+      <Route path="/marketplace/register" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+      <Route path="/marketplace/login" element={<PublicLayout><MarketplacePage /></PublicLayout>} />
+      <Route path="/home-light" element={<HomeLight />} />
+      <Route path="/home2" element={<PublicLayout><Home2 /></PublicLayout>} />
+
+      {/* Marketplace Admin routes */}
+      <Route path="/marketplace-admin/login" element={<MarketplaceAdminLogin />} />
+      <Route path="/marketplace-admin/*" element={<MarketplaceAdminDashboard />} />
+      <Route path="/marketplace-admin" element={<MarketplaceAdminDashboard />} />
+      <Route path="/marketplace/admin/login" element={<MarketplaceAdminLogin />} />
+      <Route path="/marketplace/admin/*" element={<MarketplaceAdminDashboard />} />
+      <Route path="/marketplace/admin" element={<MarketplaceAdminDashboard />} />
+
+      {/* Admin routes */}
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/dashboard" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+      <Route path="/admin/news/new" element={<AdminRoute><NewsForm /></AdminRoute>} />
+      <Route path="/admin/news/:id/edit" element={<AdminRoute><NewsForm /></AdminRoute>} />
+      <Route path="/admin/gallery" element={<AdminRoute><GalleryManager /></AdminRoute>} />
+      <Route path="/admin/projects" element={<AdminRoute><ProjectsManager /></AdminRoute>} />
+      <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-      <AuthProvider>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            style: { background: '#1f2937', color: '#f9fafb', border: '1px solid rgba(255,255,255,0.1)' },
-            success: { iconTheme: { primary: '#22c55e', secondary: '#fff' } },
-          }}
-        />
-        <ScrollToHash />
-        <ScrollAnimator />
-        <SearchModal />
-        <ChatBot />
-        <Routes>
-          {/* Public routes */}
-          <Route path="/"          element={<PublicLayout><Home /></PublicLayout>} />
-          <Route path="/about"     element={<PublicLayout><AboutPage /></PublicLayout>} />
-          <Route path="/programs"  element={<PublicLayout><ProgramsPage /></PublicLayout>} />
-          <Route path="/impact"    element={<PublicLayout><ResultsPage /></PublicLayout>} />
-          <Route path="/partners"  element={<PublicLayout><PartnersPage /></PublicLayout>} />
-          <Route path="/news"      element={<PublicLayout><NewsPage /></PublicLayout>} />
-          <Route path="/news/:slug" element={<PublicLayout><NewsArticle /></PublicLayout>} />
-          <Route path="/contact"   element={<PublicLayout><ContactPage /></PublicLayout>} />
-          <Route path="/gallery"   element={<PublicLayout><GalleryPage /></PublicLayout>} />
-          <Route path="/home-light" element={<HomeLight />} />
-          <Route path="/home2"      element={<PublicLayout><Home2 /></PublicLayout>} />
-
-          {/* Admin routes */}
-          <Route path="/admin/login"       element={<AdminLogin />} />
-          <Route path="/admin/dashboard"   element={<AdminRoute><AdminDashboard /></AdminRoute>} />
-          <Route path="/admin/news/new"    element={<AdminRoute><NewsForm /></AdminRoute>} />
-          <Route path="/admin/news/:id/edit" element={<AdminRoute><NewsForm /></AdminRoute>} />
-          <Route path="/admin/gallery"   element={<AdminRoute><GalleryManager /></AdminRoute>} />
-          <Route path="/admin/projects"  element={<AdminRoute><ProjectsManager /></AdminRoute>} />
-          <Route path="/admin"             element={<Navigate to="/admin/dashboard" replace />} />
-
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AuthProvider>
+        <AuthProvider>
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: { background: '#1f2937', color: '#f9fafb', border: '1px solid rgba(255,255,255,0.1)' },
+              success: { iconTheme: { primary: '#22c55e', secondary: '#fff' } },
+            }}
+          />
+          <ScrollToHash />
+          <ScrollAnimator />
+          <SearchModal />
+          <ChatBot />
+          <PWAInstallBanner />
+          <AppRoutes />
+        </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
   );

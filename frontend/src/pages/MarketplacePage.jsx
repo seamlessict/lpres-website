@@ -1,0 +1,2096 @@
+import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import {
+    Search,
+    MapPin,
+    Phone,
+    Mail,
+    MessageCircle,
+    Calendar,
+    Package,
+    Leaf,
+    Star,
+    Plus,
+    Grid,
+    List,
+    X,
+    Upload,
+    User,
+    Lock,
+    LogOut,
+    CheckCircle2,
+    AlertCircle,
+    ShieldCheck,
+    Award,
+    Clock,
+    DollarSign,
+    Tag,
+    TrendingUp,
+    ArrowLeft
+} from 'lucide-react';
+import './MarketplacePage.css';
+import { DEFAULT_API_URL } from '../utils/env';
+import { enqueueOfflineRequest } from '../utils/offlineSync';
+
+const API_BASE = DEFAULT_API_URL;
+
+const renderLocationText = (loc) => {
+    if (!loc) return 'Kwara State';
+    if (typeof loc === 'string') return loc;
+    if (typeof loc === 'object') {
+        const parts = [loc.region || loc.lga, loc.state || 'Kwara State'].filter(Boolean);
+        return parts.join(', ');
+    }
+    return String(loc);
+};
+
+export default function MarketplacePage() {
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    // Auth state for Marketplace Marketers / Buyers
+    const [mUser, setMUser] = useState(() => {
+        try {
+            const saved = localStorage.getItem('lpres_m_user');
+            return saved ? JSON.parse(saved) : null;
+        } catch {
+            return null;
+        }
+    });
+
+    const [products, setProducts] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('');
+    const [selectedLga, setSelectedLga] = useState('');
+    const [viewMode, setViewMode] = useState('grid');
+    const [onlyVerifiedFilter, setOnlyVerifiedFilter] = useState(false);
+
+    // Verification Modal State
+    const [showVerificationModal, setShowVerificationModal] = useState(false);
+    const [verificationFarmName, setVerificationFarmName] = useState('');
+    const [verificationCoopName, setVerificationCoopName] = useState('');
+    const [verificationNin, setVerificationNin] = useState('');
+    const [verificationLga, setVerificationLga] = useState('Kaiama');
+    const [verificationNotes, setVerificationNotes] = useState('');
+    const [verificationSubmitting, setVerificationSubmitting] = useState(false);
+    const [verificationSuccess, setVerificationSuccess] = useState('');
+
+    // Modals
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [showAuthModal, setShowAuthModal] = useState(false);
+    const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
+    const [authIntentReason, setAuthIntentReason] = useState('');
+    const [revealedContacts, setRevealedContacts] = useState({});
+
+    // Auth form
+    const [authEmail, setAuthEmail] = useState('');
+    const [authPassword, setAuthPassword] = useState('');
+    const [authName, setAuthName] = useState('');
+    const [authPhone, setAuthPhone] = useState('');
+    const [authLga, setAuthLga] = useState('Ilorin East');
+    const [authError, setAuthError] = useState('');
+    const [authSubmitting, setAuthSubmitting] = useState(false);
+
+    // Page View State ('catalog' | 'profile')
+    const [currentView, setCurrentView] = useState('catalog');
+    const [profileTab, setProfileTab] = useState('listings'); // 'listings' | 'inquiries' | 'sales'
+
+    // Enterprise Trade Request Modal State
+    const [showRequestModal, setShowRequestModal] = useState(false);
+    const [requestProduct, setRequestProduct] = useState(null);
+    const [reqQty, setReqQty] = useState('1');
+    const [reqIncludeInspection, setReqIncludeInspection] = useState(true);
+    const [reqRequestSupplyChain, setReqRequestSupplyChain] = useState(false);
+    const [reqBuyerName, setReqBuyerName] = useState('');
+    const [reqBuyerEmail, setReqBuyerEmail] = useState('');
+    const [reqBuyerPhone, setReqBuyerPhone] = useState('');
+    const [reqBuyerLga, setReqBuyerLga] = useState('Ilorin East');
+    const [reqDeliveryLocation, setReqDeliveryLocation] = useState('');
+    const [reqAdditionalNotes, setReqAdditionalNotes] = useState('');
+    const [reqSubmitting, setReqSubmitting] = useState(false);
+    const [reqSuccessData, setReqSuccessData] = useState(null);
+    const [reqError, setReqError] = useState('');
+
+    // Bid Modal State
+    const [showBidModal, setShowBidModal] = useState(false);
+    const [bidProduct, setBidProduct] = useState(null);
+    const [bidAmountInput, setBidAmountInput] = useState('');
+    const [bidQtyInput, setBidQtyInput] = useState('1');
+    const [bidNotesInput, setBidNotesInput] = useState('');
+    const [bidSubmitting, setBidSubmitting] = useState(false);
+    const [bidSuccessData, setBidSuccessData] = useState(null);
+    const [bidError, setBidError] = useState('');
+
+    // My Bids State
+    const [myBids, setMyBids] = useState([]);
+    const [loadingMyBids, setLoadingMyBids] = useState(false);
+
+    const handleOpenBidModal = (prod) => {
+        setBidProduct(prod);
+        const defaultPrice = typeof prod.price === 'object' ? (prod.price.amount || 0) : Number(prod.price || 0);
+        setBidAmountInput(String(defaultPrice));
+        setBidQtyInput('1');
+        setBidNotesInput('');
+        setBidSuccessData(null);
+        setBidError('');
+        setShowBidModal(true);
+    };
+
+    const handleSubmitBid = async (e) => {
+        e.preventDefault();
+        if (!bidProduct || !mUser) return;
+        setBidSubmitting(true);
+        setBidError('');
+
+        const currency = (typeof bidProduct.price === 'object' && bidProduct.price.currency) || 'NGN';
+        const payload = {
+            product_id: String(bidProduct._id || bidProduct.id),
+            product_name: bidProduct.name,
+            bidder_name: mUser.name,
+            bidder_email: mUser.email,
+            bidder_phone: mUser.phone || '',
+            bidder_lga: mUser.lga || 'Ilorin East',
+            bid_amount: { amount: parseFloat(bidAmountInput) || 0, currency },
+            offered_qty: String(bidQtyInput),
+            notes: bidNotesInput,
+            seller_id: bidProduct.seller?.userId || '',
+            seller_name: bidProduct.seller?.name || ''
+        };
+
+        try {
+            if (!navigator.onLine) {
+                enqueueOfflineRequest({
+                    endpoint: '/api/marketplace/bids',
+                    method: 'POST',
+                    data: payload,
+                    label: `Offer/Bid for ${bidProduct.name}`
+                });
+                setBidSuccessData({
+                    success: true,
+                    is_offline: true,
+                    message: `Offline Mode: Your offer of ₦${Number(bidAmountInput).toLocaleString()} for ${bidProduct.name} has been queued locally. It will auto-sync as soon as network connection returns!`,
+                    data: { bid_id: `OFFLINE-BID-${Date.now()}` }
+                });
+                return;
+            }
+
+            const res = await fetch(`${API_BASE}/api/marketplace/bids`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || data.message || 'Failed to submit bid');
+            setBidSuccessData(data);
+            fetchMyBids();
+        } catch (err) {
+            enqueueOfflineRequest({
+                endpoint: '/api/marketplace/bids',
+                method: 'POST',
+                data: payload,
+                label: `Offer/Bid for ${bidProduct.name}`
+            });
+            setBidSuccessData({
+                success: true,
+                is_offline: true,
+                message: `Your offer for ${bidProduct.name} has been queued locally and will auto-sync when network returns.`,
+                data: { bid_id: `OFFLINE-BID-${Date.now()}` }
+            });
+        } finally {
+            setBidSubmitting(false);
+        }
+    };
+
+    const fetchMyBids = async () => {
+        if (!mUser?.email) return;
+        setLoadingMyBids(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/marketplace/bids/my?email=${encodeURIComponent(mUser.email)}`);
+            const data = await res.json();
+            if (data.success && data.data) {
+                setMyBids(data.data);
+            }
+        } catch (_) { }
+        finally {
+            setLoadingMyBids(false);
+        }
+    };
+
+    const handleOpenRequestModal = (prod) => {
+        setRequestProduct(prod);
+        setReqQty('1');
+        setReqIncludeInspection(true);
+        setReqRequestSupplyChain(false);
+        setReqBuyerName(mUser?.name || '');
+        setReqBuyerEmail(mUser?.email || '');
+        setReqBuyerPhone(mUser?.phone || '');
+        setReqBuyerLga(mUser?.lga || 'Ilorin East');
+        setReqDeliveryLocation('');
+        setReqAdditionalNotes('');
+        setReqSuccessData(null);
+        setReqError('');
+        setShowRequestModal(true);
+    };
+
+    const handleSubmitTradeRequest = async (e) => {
+        e.preventDefault();
+        if (!requestProduct) return;
+        setReqSubmitting(true);
+        setReqError('');
+
+        const unitAmount = typeof requestProduct.price === 'object' ? (requestProduct.price.amount || 0) : Number(requestProduct.price || 0);
+        const qtyNum = parseFloat(reqQty) || 1;
+        const totalAmount = unitAmount * qtyNum;
+        const currency = (typeof requestProduct.price === 'object' && requestProduct.price.currency) || 'NGN';
+
+        const payload = {
+            product_id: String(requestProduct._id || requestProduct.id),
+            product_name: requestProduct.name,
+            product_category: requestProduct.category || 'General',
+            unit_price: typeof requestProduct.price === 'object' ? requestProduct.price : { amount: unitAmount, currency, unit: 'unit' },
+            requested_qty: String(reqQty),
+            estimated_total: { amount: totalAmount, currency },
+            include_inspection: reqIncludeInspection,
+            request_supply_chain: reqRequestSupplyChain,
+            buyer_name: reqBuyerName,
+            buyer_email: reqBuyerEmail,
+            buyer_phone: reqBuyerPhone,
+            buyer_lga: reqBuyerLga,
+            delivery_location: reqDeliveryLocation,
+            additional_notes: reqAdditionalNotes,
+            seller_name: requestProduct.seller?.name || 'Kwara Producer',
+            seller_id: requestProduct.seller?.userId || '',
+            seller_contact: requestProduct.seller?.contact || {}
+        };
+
+        try {
+            if (!navigator.onLine) {
+                enqueueOfflineRequest({
+                    endpoint: '/api/marketplace/requests',
+                    method: 'POST',
+                    data: payload,
+                    label: `Trade Request for ${requestProduct.name}`
+                });
+                setReqSuccessData({
+                    success: true,
+                    is_offline: true,
+                    message: `Offline Mode: Your trade request for ${requestProduct.name} has been queued locally. It will auto-sync to Kwara L-PRES as soon as your internet connection returns!`,
+                    data: { request_id: `OFFLINE-${Date.now()}` }
+                });
+                return;
+            }
+
+            const res = await fetch(`${API_BASE}/api/marketplace/requests`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || data.message || 'Failed to submit trade request');
+            setReqSuccessData(data);
+        } catch (err) {
+            // Fallback offline queue on network error
+            enqueueOfflineRequest({
+                endpoint: '/api/marketplace/requests',
+                method: 'POST',
+                data: payload,
+                label: `Trade Request for ${requestProduct.name}`
+            });
+            setReqSuccessData({
+                success: true,
+                is_offline: true,
+                message: `Your trade request for ${requestProduct.name} has been queued locally and will sync automatically when network returns.`,
+                data: { request_id: `OFFLINE-${Date.now()}` }
+            });
+        } finally {
+            setReqSubmitting(false);
+        }
+    };
+
+
+    const switchView = (view) => {
+        setCurrentView(view);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // Toggle product status (active vs sold)
+    const handleToggleStatus = async (id, currentStatus) => {
+        const newStatus = currentStatus === 'sold' ? 'active' : 'sold';
+        try {
+            await fetch(`${API_BASE}/api/marketplace/products/${id}/status?status=${newStatus}`, { method: 'PATCH' });
+        } catch (_) { }
+        setProducts((prev) => prev.map((p) => {
+            if ((p._id || p.id) === id) {
+                return { ...p, status: newStatus };
+            }
+            return p;
+        }));
+    };
+
+    // Add/Edit Product State
+    const [editingProduct, setEditingProduct] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [selectedImages, setSelectedImages] = useState([]);
+    const [imagePreviews, setImagePreviews] = useState([]);
+
+    // Fetch Products
+    const fetchProducts = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/marketplace/products`);
+            if (!res.ok) throw new Error('Failed to fetch marketplace products');
+            const data = await res.json();
+            if (data.success && data.data?.products) {
+                setProducts(data.data.products);
+            }
+        } catch (err) {
+            console.error('Marketplace load error:', err);
+            setError('Unable to connect to live marketplace server. Showing local cache.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchProducts();
+    }, []);
+
+    // Sync route with Auth Modal
+    useEffect(() => {
+        if (location.pathname === '/marketplace/register') {
+            setAuthMode('register');
+            setAuthIntentReason('create your marketer account');
+            setShowAuthModal(true);
+        } else if (location.pathname === '/marketplace/login') {
+            setAuthMode('login');
+            setAuthIntentReason('log in to your marketer account');
+            setShowAuthModal(true);
+        }
+    }, [location.pathname]);
+
+    // Auth Handlers
+    const handleAuthSubmit = async (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthSubmitting(true);
+
+        try {
+            const endpoint = authMode === 'register'
+                ? `${API_BASE}/api/marketplace/auth/register`
+                : `${API_BASE}/api/marketplace/auth/login`;
+
+            const payload = authMode === 'register' ? {
+                name: authName,
+                email: authEmail,
+                phone: authPhone,
+                password: authPassword,
+                lga: authLga
+            } : {
+                email: authEmail,
+                password: authPassword
+            };
+
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Authentication failed');
+
+            if (data.user) {
+                localStorage.setItem('lpres_m_user', JSON.stringify(data.user));
+                localStorage.setItem('lpres_m_token', data.token || '');
+                setMUser(data.user);
+                setShowAuthModal(false);
+                setAuthEmail('');
+                setAuthPassword('');
+                setAuthName('');
+                setAuthPhone('');
+            }
+        } catch (err) {
+            setAuthError(err.message || 'Auth error');
+        } finally {
+            setAuthSubmitting(false);
+        }
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('lpres_m_user');
+        localStorage.removeItem('lpres_m_token');
+        setMUser(null);
+        setRevealedContacts({});
+    };
+
+    const requireAuthForAction = (reason, callback) => {
+        if (!mUser) {
+            setAuthIntentReason(reason);
+            setAuthError('');
+            setShowAuthModal(true);
+        } else {
+            callback();
+        }
+    };
+
+    // Image Upload Handlers
+    const handleImageChange = (e) => {
+        if (e.target.files) {
+            const files = Array.from(e.target.files);
+            const validImages = files.filter((file) =>
+                ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.type)
+            );
+
+            if (validImages.length + selectedImages.length > 4) {
+                alert('You can upload up to 4 product photos.');
+                return;
+            }
+
+            setSelectedImages((prev) => [...prev, ...validImages]);
+
+            validImages.forEach((file) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setImagePreviews((prev) => [...prev, reader.result]);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+    };
+
+    const removeImage = (index) => {
+        setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+        setImagePreviews((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    // Add Product Submit
+    const handleAddProduct = async (e) => {
+        e.preventDefault();
+        if (!mUser) return;
+        if (imagePreviews.length === 0) {
+            alert('Please upload or provide at least one product photo.');
+            return;
+        }
+
+        setIsSubmitting(true);
+
+        const form = e.target;
+        const newProduct = {
+            name: form.name?.value || '',
+            description: form.description?.value || '',
+            category: form.category?.value || 'Livestock',
+            price: {
+                amount: parseFloat(form.price?.value) || 0,
+                currency: 'NGN',
+                unit: form.priceUnit?.value || 'per unit'
+            },
+            quantity: {
+                available: parseInt(form.quantity?.value, 10) || 1,
+                unit: form.quantityUnit?.value || 'units'
+            },
+            location: {
+                region: form.region?.value || mUser?.lga || 'Ilorin East',
+                country: 'Nigeria'
+            },
+            specifications: {
+                isOrganic: form.organic ? form.organic.checked : true,
+                variety: form.variety?.value || '',
+                grade: form.grade?.value || ''
+            },
+            images: imagePreviews.map((url, i) => ({ url, alt: form.name?.value || 'Product Image', isPrimary: i === 0 })),
+            seller: {
+                userId: mUser._id || mUser.id || mUser.email,
+                name: mUser.name,
+                contact: {
+                    phone: form.phone?.value || mUser.phone || '',
+                    email: mUser.email,
+                    whatsapp: form.whatsapp?.value || form.phone?.value || mUser.phone || ''
+                }
+            }
+        };
+
+        try {
+            const token = localStorage.getItem('lpres_m_token');
+            const res = await fetch(`${API_BASE}/api/marketplace/products`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(newProduct)
+            });
+
+            if (!res.ok) throw new Error('Failed to post product');
+
+            const data = await res.json();
+            if (data.success && data.data?.product) {
+                setProducts((prev) => [data.data.product, ...prev]);
+            } else {
+                setProducts((prev) => [newProduct, ...prev]);
+            }
+
+            setShowAddModal(false);
+            setSelectedImages([]);
+            setImagePreviews([]);
+            form.reset();
+        } catch (err) {
+            alert('Product posted locally!');
+            setProducts((prev) => [newProduct, ...prev]);
+            setShowAddModal(false);
+            setSelectedImages([]);
+            setImagePreviews([]);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    // Delete product
+    const handleDeleteProduct = async (id) => {
+        if (!window.confirm('Are you sure you want to remove this listing?')) return;
+        try {
+            await fetch(`${API_BASE}/api/marketplace/products/${id}`, { method: 'DELETE' });
+        } catch (_) { }
+        setProducts((prev) => prev.filter((p) => (p._id || p.id) !== id));
+    };
+
+    // Filter products
+    const filteredProducts = products.filter((p) => {
+        const nameStr = p?.name || '';
+        const descStr = p?.description || '';
+        const matchesSearch =
+            nameStr.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            descStr.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesCategory = !selectedCategory || selectedCategory === 'All' || p.category === selectedCategory;
+        const matchesLga = !selectedLga || selectedLga === 'All' || p.location?.region?.toLowerCase() === selectedLga.toLowerCase();
+        const matchesVerified = !onlyVerifiedFilter || Boolean(p.seller?.isVerified || p.seller?.is_verified);
+
+        return matchesSearch && matchesCategory && matchesLga && matchesVerified;
+    });
+
+    const handleRequestVerification = async (e) => {
+        e.preventDefault();
+        if (!mUser) return;
+        setVerificationSubmitting(true);
+        try {
+            const token = localStorage.getItem('lpres_m_token');
+            await fetch(`${API_BASE}/api/marketplace/verification/request`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    farm_name: verificationFarmName,
+                    cooperative_name: verificationCoopName,
+                    nin_or_reg_no: verificationNin,
+                    lga: verificationLga,
+                    notes: verificationNotes
+                })
+            });
+            const updatedUser = {
+                ...mUser,
+                verification_status: 'pending',
+                verification_details: {
+                    farmName: verificationFarmName,
+                    coopName: verificationCoopName,
+                    nin: verificationNin,
+                    lga: verificationLga
+                }
+            };
+            localStorage.setItem('lpres_m_user', JSON.stringify(updatedUser));
+            setMUser(updatedUser);
+            setVerificationSuccess('Verification request submitted successfully! Kwara L-PRES State Project Office will review your details.');
+            setTimeout(() => {
+                setShowVerificationModal(false);
+                setVerificationSuccess('');
+            }, 2200);
+        } catch (_) {
+            const updatedUser = { ...mUser, verification_status: 'pending' };
+            localStorage.setItem('lpres_m_user', JSON.stringify(updatedUser));
+            setMUser(updatedUser);
+            setVerificationSuccess('Verification request submitted! Awaiting L-PRES admin review.');
+            setTimeout(() => {
+                setShowVerificationModal(false);
+                setVerificationSuccess('');
+            }, 2200);
+        } finally {
+            setVerificationSubmitting(false);
+        }
+    };
+
+    const formatPrice = (amount, unit) => {
+        return `₦${Number(amount || 0).toLocaleString()} ${unit || ''}`;
+    };
+
+    return (
+        <div className="marketplace-page">
+            {currentView === 'catalog' ? (
+                <>
+                    {/* Hero Header */}
+                    <section className="marketplace-hero">
+                        <div className="container" style={{ position: 'relative' }}>
+                            {/* Parallel Top Action Bar (Top-Left: List Product, Top-Right: User Profile) */}
+                            <div className="mp-top-action-bar">
+                                <button
+                                    onClick={() => requireAuthForAction('post a product', () => setShowAddModal(true))}
+                                    className="btn-mp-primary mp-top-left-list-btn"
+                                >
+                                    <Plus size={16} />
+                                    <span>List Product</span>
+                                </button>
+
+                                {mUser ? (
+                                    <div
+                                        className="mp-top-user-card"
+                                        onClick={() => switchView('profile')}
+                                        title="Click to view Marketer Profile"
+                                    >
+                                        <div className="mp-top-user-avatar">
+                                            <User size={18} />
+                                        </div>
+                                        <div className="mp-top-user-name">
+                                            {mUser.name} <span className="mp-top-user-lga">({mUser.lga || 'Offa'})</span>
+                                            {(mUser.isVerified || mUser.is_verified) && (
+                                                <ShieldCheck size={14} style={{ color: '#10b981' }} title="Verified Marketer" />
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="mp-top-user-card guest" onClick={() => {
+                                        setAuthIntentReason('access your marketer account');
+                                        setAuthMode('login');
+                                        setAuthError('');
+                                        setShowAuthModal(true);
+                                    }}>
+                                        <Lock size={16} />
+                                        <span>Marketer Login / Register</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="marketplace-hero__content">
+                                <div className="marketplace-hero__badge">
+                                    <Award size={15} /> Official Government Trade Intermediary — Kwara L-PRES
+                                </div>
+                                <h1 className="marketplace-hero__title">
+                                    Best Deals. <span className="text-emerald">Everything Agriculture & Livestock</span>
+                                </h1>
+                                <p className="marketplace-hero__lead">
+                                    End-to-end secure trade between Kwara agricultural producers and commercial buyers with escrow protection, veterinary health inspection, and state-wide haulage.
+                                </p>
+
+                                {/* Capsule Unified Search Bar (Livestocx Style) */}
+                                <div className="mp-hero-search-capsule">
+                                    <div className="mp-capsule-field">
+                                        <Search size={18} className="mp-capsule-icon" />
+                                        <input
+                                            type="text"
+                                            placeholder="What are you looking for? (Cattle, Maize, Feeds...)"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            className="mp-capsule-input"
+                                        />
+                                        {searchTerm && (
+                                            <button onClick={() => setSearchTerm('')} className="mp-capsule-clear">
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="mp-capsule-divider" />
+                                    <div className="mp-capsule-field select-field">
+                                        <MapPin size={16} className="mp-capsule-icon" />
+                                        <select
+                                            value={selectedLga}
+                                            onChange={(e) => setSelectedLga(e.target.value)}
+                                            className="mp-capsule-select"
+                                        >
+                                            <option value="">All Kwara LGAs</option>
+                                            {[
+                                                'Ilorin East', 'Ilorin West', 'Ilorin South', 'Offa', 'Baruten',
+                                                'Kaiama', 'Edu', 'Pategi', 'Ifelodun', 'Irepodun', 'Oyun', 'Isin',
+                                                'Moro', 'Asa', 'Oke Ero', 'Ekiti'
+                                            ].map((lga) => (
+                                                <option key={lga} value={lga}>{lga}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="mp-capsule-divider" />
+                                    <div className="mp-capsule-field select-field">
+                                        <Tag size={16} className="mp-capsule-icon" />
+                                        <select
+                                            value={selectedCategory}
+                                            onChange={(e) => setSelectedCategory(e.target.value)}
+                                            className="mp-capsule-select"
+                                        >
+                                            <option value="">All Categories</option>
+                                            {['Livestock', 'Feed & Fodder', 'Cereals', 'Cash Crops', 'Root Crops', 'Vegetables', 'Fruits', 'Equipment'].map((c) => (
+                                                <option key={c} value={c}>{c}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const el = document.getElementById('catalog-section');
+                                            if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                        }}
+                                        className="mp-capsule-btn"
+                                    >
+                                        <Search size={16} /> Search
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Announcement / Boost Strip */}
+                        <div className="mp-announcement-strip">
+                            <span className="mp-announcement-icon">🚀</span>
+                            <span>Official Escrow & 1% Veterinary Inspection Available Across All 16 Kwara LGAs</span>
+                            <a href="#catalog-section" className="mp-announcement-link">Explore Listings &rarr;</a>
+                        </div>
+                    </section>
+
+                    {/* Filter & Category Bar */}
+                    <section id="catalog-section" className="marketplace-filter-section">
+                        <div className="container">
+                            {/* Horizontal Category Chips */}
+                            <div className="mp-category-chips">
+                                <button
+                                    onClick={() => setSelectedCategory('')}
+                                    className={`mp-chip ${!selectedCategory ? 'active' : ''}`}
+                                >
+                                    All Listings
+                                </button>
+                                {['Livestock', 'Feed & Fodder', 'Cereals', 'Cash Crops', 'Root Crops', 'Vegetables', 'Fruits', 'Equipment'].map((cat) => (
+                                    <button
+                                        key={cat}
+                                        onClick={() => setSelectedCategory(selectedCategory === cat ? '' : cat)}
+                                        className={`mp-chip ${selectedCategory === cat ? 'active' : ''}`}
+                                    >
+                                        {cat}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="marketplace-filter-bar">
+                                <div className="mp-filter-left">
+                                    <span className="mp-listings-count">
+                                        Showing <strong>{filteredProducts.length}</strong> items
+                                    </span>
+                                    {selectedLga && (
+                                        <span className="mp-active-tag">LGA: {selectedLga}</span>
+                                    )}
+                                </div>
+
+                                <div className="mp-filter-right">
+                                    {/* Verified Toggle */}
+                                    <button
+                                        onClick={() => setOnlyVerifiedFilter(!onlyVerifiedFilter)}
+                                        className={`mp-verified-filter-badge ${onlyVerifiedFilter ? 'active' : ''}`}
+                                        title="Filter by L-PRES Verified Marketers"
+                                    >
+                                        <ShieldCheck size={14} />
+                                        <span>Verified Only</span>
+                                    </button>
+
+                                    {/* View Mode Toggle */}
+                                    <div className="mp-view-toggle">
+                                        <button
+                                            onClick={() => setViewMode('grid')}
+                                            className={`mp-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                                            title="Grid view"
+                                        >
+                                            <Grid size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => setViewMode('list')}
+                                            className={`mp-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                                            title="List view"
+                                        >
+                                            <List size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* Main Content Area */}
+                    <section className="marketplace-body">
+                        <div className="container">
+                            {loading ? (
+                                <div className="mp-loading-state">
+                                    <div className="mp-spinner" />
+                                    <p>Loading Kwara L-PRES Marketplace listings...</p>
+                                </div>
+                            ) : filteredProducts.length === 0 ? (
+                                <div className="mp-empty-state">
+                                    <Package size={44} className="mp-empty-icon" />
+                                    <h3>No products found matching your search</h3>
+                                    <p>Try adjusting your category or LGA filter, or be the first to list a product in this category!</p>
+                                    <button
+                                        onClick={() => requireAuthForAction('list a product', () => setShowAddModal(true))}
+                                        className="btn-mp-primary"
+                                        style={{ marginTop: 14 }}
+                                    >
+                                        <Plus size={16} /> List a Product Now
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className={viewMode === 'grid' ? 'mp-grid' : 'mp-list'}>
+                                    {filteredProducts.map((p) => {
+                                        const prodId = p._id || p.id;
+                                        const isOwner = mUser && (p.seller?.userId === mUser._id || p.seller?.email === mUser.email);
+                                        const isVerified = Boolean(p.seller?.isVerified || p.seller?.is_verified);
+
+                                        return (
+                                            <div key={prodId} className="mp-card">
+                                                {/* Card Image Wrap */}
+                                                <div className="mp-card__image-wrap">
+                                                    <img
+                                                        src={typeof p.images?.[0] === 'string' ? p.images[0] : (p.images?.[0]?.url || 'https://images.unsplash.com/photo-1546445317-29f4545f9d52?w=800&q=80')}
+                                                        alt={p.name}
+                                                        className="mp-card__image"
+                                                        onError={(e) => {
+                                                            e.target.onerror = null;
+                                                            e.target.src = 'https://images.unsplash.com/photo-1546445317-29f4545f9d52?w=800&q=80';
+                                                        }}
+                                                    />
+
+                                                    {/* Top Left Pill Badge: Category */}
+                                                    <span className="mp-card__cat-pill">{p.category || 'General'}</span>
+
+                                                    {/* Top Right Badges */}
+                                                    {isVerified && (
+                                                        <span className="mp-card__verified-badge" title="Verified by Kwara L-PRES">
+                                                            <ShieldCheck size={11} /> Verified
+                                                        </span>
+                                                    )}
+
+                                                    {/* Bottom Right Floating Circular Quick Action */}
+                                                    <button
+                                                        onClick={() => handleOpenRequestModal(p)}
+                                                        className="mp-card__quick-fav"
+                                                        title="Request Trade Facilitation"
+                                                    >
+                                                        <ShieldCheck size={15} />
+                                                    </button>
+                                                </div>
+
+                                                {/* Card Content Body */}
+                                                <div className="mp-card__content">
+                                                    <h3 className="mp-card__title" title={p.name}>{p.name}</h3>
+
+                                                    {/* Price & Quantity Row */}
+                                                    <div className="mp-card__price-row">
+                                                        <div className="mp-card__price">
+                                                            {formatPrice(p.price?.amount, p.price?.unit)}
+                                                        </div>
+                                                        <span className="mp-card__stock">
+                                                            {p.quantity?.available || 1} available
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Attributes Pills Strip */}
+                                                    <div className="mp-card__pills">
+                                                        <span className="mp-pill-tag">In Stock</span>
+                                                        <span className="mp-pill-tag gray">Non-Negotiable</span>
+                                                        {p.specifications?.isOrganic && (
+                                                            <span className="mp-pill-tag organic">
+                                                                <Leaf size={10} /> Organic
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Location */}
+                                                    <div className="mp-card__location">
+                                                        <MapPin size={12} className="mp-loc-icon" />
+                                                        <span>{p.location?.region || p.seller?.lga || 'Kwara State'}, Kwara</span>
+                                                    </div>
+
+                                                    {/* Card Action Buttons */}
+                                                    <div className="mp-card__actions">
+                                                        <button
+                                                            onClick={() => handleOpenRequestModal(p)}
+                                                            className="btn-request-trade-sm"
+                                                            title="Initiate transaction via L-PRES Intermediary"
+                                                        >
+                                                            <ShieldCheck size={14} /> Request Item
+                                                        </button>
+                                                        <button
+                                                            onClick={() => requireAuthForAction('submit a bid', () => handleOpenBidModal(p))}
+                                                            className="btn-bid-sm"
+                                                            title="Place custom price bid"
+                                                        >
+                                                            <DollarSign size={14} /> Bid
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Owner actions */}
+                                                    {isOwner && (
+                                                        <div className="mp-owner-bar">
+                                                            <span className="mp-owner-badge">Your Listing</span>
+                                                            <button
+                                                                onClick={() => handleDeleteProduct(prodId)}
+                                                                className="mp-delete-btn"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </section>
+                </>
+            ) : null}
+
+            {/* Auth Modal (Login / Register) */}
+            {showAuthModal && (
+                <div className="mp-modal-overlay">
+                    <div className="mp-modal">
+                        <button onClick={() => setShowAuthModal(false)} className="mp-modal-close">
+                            <X size={20} />
+                        </button>
+
+                        <div className="mp-auth-header">
+                            <div className="mp-auth-icon">
+                                <User size={24} />
+                            </div>
+                            <h2>Marketer Registration & Login</h2>
+                            <p>
+                                {authIntentReason
+                                    ? `Please log in or register to ${authIntentReason}.`
+                                    : 'Join the Kwara L-PRES agricultural trade network.'}
+                            </p>
+                        </div>
+
+                        {/* Toggle Tabs */}
+                        <div className="mp-auth-tabs">
+                            <button
+                                className={`mp-auth-tab ${authMode === 'login' ? 'active' : ''}`}
+                                onClick={() => setAuthMode('login')}
+                            >
+                                Log In
+                            </button>
+                            <button
+                                className={`mp-auth-tab ${authMode === 'register' ? 'active' : ''}`}
+                                onClick={() => setAuthMode('register')}
+                            >
+                                Register
+                            </button>
+                        </div>
+
+                        {authError && (
+                            <div className="mp-auth-error">
+                                <AlertCircle size={16} /> {authError}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleAuthSubmit} className="mp-auth-form">
+                            {authMode === 'register' && (
+                                <>
+                                    <div className="mp-form-group">
+                                        <label>Full Name / Business Name *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. Alhaji Sanni Bello"
+                                            value={authName}
+                                            onChange={(e) => setAuthName(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="mp-form-group">
+                                        <label>Phone Number (WhatsApp) *</label>
+                                        <input
+                                            type="tel"
+                                            required
+                                            placeholder="+234 803 000 0000"
+                                            value={authPhone}
+                                            onChange={(e) => setAuthPhone(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className="mp-form-group">
+                                        <label>Kwara LGA *</label>
+                                        <select
+                                            value={authLga}
+                                            onChange={(e) => setAuthLga(e.target.value)}
+                                        >
+                                            {['Ilorin East', 'Ilorin West', 'Ilorin South', 'Offa', 'Baruten', 'Kaiama', 'Edu', 'Pategi', 'Ifelodun', 'Irepodun', 'Oyun', 'Isin', 'Moro', 'Asa'].map((lga) => (
+                                                <option key={lga} value={lga}>{lga}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="mp-form-group">
+                                <label>Email Address *</label>
+                                <input
+                                    type="email"
+                                    required
+                                    placeholder="your.email@example.com"
+                                    value={authEmail}
+                                    onChange={(e) => setAuthEmail(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="mp-form-group">
+                                <label>Password *</label>
+                                <input
+                                    type="password"
+                                    required
+                                    placeholder="••••••••"
+                                    value={authPassword}
+                                    onChange={(e) => setAuthPassword(e.target.value)}
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={authSubmitting}
+                                className="btn-mp-primary full-width"
+                            >
+                                {authSubmitting ? 'Authenticating...' : authMode === 'register' ? 'Create Account' : 'Log In'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Product Modal */}
+            {showAddModal && (
+                <div className="mp-modal-overlay">
+                    <div className="mp-modal large">
+                        <button onClick={() => setShowAddModal(false)} className="mp-modal-close">
+                            <X size={20} />
+                        </button>
+
+                        <div className="mp-modal-title-box">
+                            <h2>List Your Product on Kwara L-PRES Marketplace</h2>
+                            <p>Promote your livestock, produce, fodder, or machinery to thousands of buyers across Kwara State.</p>
+                        </div>
+
+                        <form onSubmit={handleAddProduct} className="mp-add-form">
+                            <div className="mp-form-grid">
+                                <div className="mp-form-group">
+                                    <label>Product Name *</label>
+                                    <input
+                                        type="text"
+                                        name="name"
+                                        required
+                                        placeholder="e.g. Bunaji Fattened Bulls"
+                                    />
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Category *</label>
+                                    <select name="category" required>
+                                        {['Livestock', 'Feed & Fodder', 'Cereals', 'Cash Crops', 'Root Crops', 'Vegetables', 'Fruits', 'Equipment'].map((c) => (
+                                            <option key={c} value={c}>{c}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mp-form-group">
+                                <label>Description *</label>
+                                <textarea
+                                    name="description"
+                                    required
+                                    rows={3}
+                                    placeholder="Describe your produce, animal weight, health condition, and location details..."
+                                />
+                            </div>
+
+                            <div className="mp-form-grid">
+                                <div className="mp-form-group">
+                                    <label>Price (₦) *</label>
+                                    <input
+                                        type="number"
+                                        name="price"
+                                        required
+                                        min="0"
+                                        placeholder="e.g. 45000"
+                                    />
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Price Unit *</label>
+                                    <select name="priceUnit" required defaultValue="per bag">
+                                        <option value="per bull">per bull</option>
+                                        <option value="per head">per head</option>
+                                        <option value="per Litre">per Litre</option>
+                                        <option value="per bag">per bag</option>
+                                        <option value="per 50kg bag">per 50kg bag</option>
+                                        <option value="per bale">per bale</option>
+                                        <option value="per ton">per ton</option>
+                                        <option value="per unit">per unit</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mp-form-grid">
+                                <div className="mp-form-group">
+                                    <label>Available Quantity *</label>
+                                    <input
+                                        type="number"
+                                        name="quantity"
+                                        required
+                                        min="1"
+                                        defaultValue="10"
+                                    />
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Quantity Unit *</label>
+                                    <select name="quantityUnit" required defaultValue="bags">
+                                        <option value="bulls">bulls</option>
+                                        <option value="head">head</option>
+                                        <option value="Litres">Litres</option>
+                                        <option value="bags">bags</option>
+                                        <option value="bales">bales</option>
+                                        <option value="tons">tons</option>
+                                        <option value="units">units</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mp-form-grid">
+                                <div className="mp-form-group">
+                                    <label>Kwara Region / LGA *</label>
+                                    <select name="region" required defaultValue={mUser?.lga || 'Ilorin East'}>
+                                        {['Ilorin East', 'Ilorin West', 'Ilorin South', 'Offa', 'Baruten', 'Kaiama', 'Edu', 'Pategi', 'Ifelodun', 'Irepodun', 'Oyun', 'Isin', 'Moro', 'Asa'].map((lga) => (
+                                            <option key={lga} value={lga}>{lga}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Variety / Grade (Optional)</label>
+                                    <input
+                                        type="text"
+                                        name="variety"
+                                        placeholder="e.g. Bunaji / SAMMAZ Hybrid"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mp-form-grid">
+                                <div className="mp-form-group">
+                                    <label>Contact Phone Number *</label>
+                                    <input
+                                        type="tel"
+                                        name="phone"
+                                        required
+                                        defaultValue={mUser?.phone || ''}
+                                        placeholder="+234 803 000 0000"
+                                    />
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>WhatsApp Number</label>
+                                    <input
+                                        type="tel"
+                                        name="whatsapp"
+                                        defaultValue={mUser?.phone || ''}
+                                        placeholder="+234 803 000 0000"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Upload Image Section */}
+                            <div className="mp-form-group">
+                                <label>Product Photos (up to 4) *</label>
+                                <label htmlFor="mp-img-upload" className="mp-upload-dropzone">
+                                    <Upload size={32} />
+                                    <p>Click to choose product photos</p>
+                                    <span>JPEG, PNG, WEBP</span>
+                                </label>
+                                <input
+                                    id="mp-img-upload"
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    onChange={handleImageChange}
+                                    style={{ display: 'none' }}
+                                />
+
+                                {imagePreviews.length > 0 && (
+                                    <div className="mp-previews-grid">
+                                        {imagePreviews.map((src, idx) => (
+                                            <div key={idx} className="mp-preview-item">
+                                                <img src={src} alt="Preview" />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeImage(idx)}
+                                                    className="mp-remove-preview"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mp-checkbox-group">
+                                <input type="checkbox" id="organic" name="organic" defaultChecked />
+                                <label htmlFor="organic">This product is organically produced under L-PRES standards</label>
+                            </div>
+
+                            <div className="mp-modal-actions">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddModal(false)}
+                                    className="btn-mp-cancel"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className="btn-mp-primary"
+                                >
+                                    {isSubmitting ? 'Publishing...' : 'Publish Product'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Dedicated Full Page Marketer Profile View */}
+            {currentView === 'profile' && mUser && (
+                <div className="mp-profile-page-view container" style={{ padding: '2rem 1rem 4rem' }}>
+                    {/* Navigation Top Bar */}
+                    <div className="mp-profile-page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', gap: '1rem', flexWrap: 'wrap' }}>
+                        <button
+                            onClick={() => switchView('catalog')}
+                            className="btn-mp-primary"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: '#059669', color: '#ffffff', border: 'none', padding: '0.65rem 1.35rem', borderRadius: 9999, fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', boxShadow: '0 4px 14px rgba(5, 150, 105, 0.35)' }}
+                        >
+                            <ArrowLeft size={18} /> Back to Marketplace
+                        </button>
+                        <h1 className="mp-profile-page-title" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Marketer Profile & Control Center</h1>
+                        <button onClick={() => { handleLogout(); switchView('catalog'); }} className="btn-mp-secondary mp-profile-logout" title="Log Out" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', fontWeight: 700, padding: '0.55rem 1.1rem', borderRadius: '0.5rem', cursor: 'pointer' }}>
+                            <LogOut size={16} /> Log Out
+                        </button>
+                    </div>
+
+                    <div className="mp-profile-page-card" style={{ background: '#ffffff', borderRadius: '1rem', padding: '1.75rem', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)', border: '1px solid #e2e8f0' }}>
+                        {/* Profile Header & Contact Details */}
+                        <div className="mp-profile-header">
+                            <div className="mp-profile-avatar">
+                                {mUser.name ? mUser.name.charAt(0).toUpperCase() : 'M'}
+                            </div>
+                            <div className="mp-profile-info">
+                                <div className="mp-profile-name-row">
+                                    <h2>{mUser.name}</h2>
+                                    {(mUser.is_verified || mUser.verification_status === 'verified') ? (
+                                        <span className="mp-verified-badge">
+                                            <ShieldCheck size={14} /> L-PRES Verified Marketer
+                                        </span>
+                                    ) : (
+                                        <span className="mp-unverified-badge" style={{ background: 'rgba(217, 119, 6, 0.15)', color: '#d97706', padding: '0.2rem 0.6rem', borderRadius: 999, fontSize: '0.75rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                            <Clock size={12} /> {mUser.verification_status === 'pending' ? 'Verification Pending' : 'Unverified Seller'}
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="mp-profile-location"><MapPin size={14} /> {mUser.lga} LGA, Kwara State</p>
+
+                                <div className="mp-profile-contacts-pills">
+                                    <span><Mail size={13} /> {mUser.email}</span>
+                                    <span><Phone size={13} /> {mUser.phone || 'N/A'}</span>
+                                    <span><MessageCircle size={13} /> WhatsApp: {mUser.phone || 'N/A'}</span>
+                                </div>
+                            </div>
+                            <button onClick={() => { handleLogout(); switchView('catalog'); }} className="btn-mp-secondary" title="Log Out" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', fontWeight: 700, padding: '0.5rem 1rem', borderRadius: '0.5rem', cursor: 'pointer', height: 'fit-content' }}>
+                                <LogOut size={15} /> Log Out
+                            </button>
+                        </div>
+
+                        {/* Verification Request Banner */}
+                        {(mUser.is_verified || mUser.verification_status === 'verified') ? (
+                            <div className="mp-verification-banner verified">
+                                <div className="mp-verification-banner__info">
+                                    <div className="mp-verification-banner__icon"><ShieldCheck size={24} /></div>
+                                    <div>
+                                        <div className="mp-verification-banner__title">L-PRES Verified Marketer Account</div>
+                                        <div className="mp-verification-banner__desc">Your livestock & agro products carry the official L-PRES Trust Badge across Kwara State.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : mUser.verification_status === 'pending' ? (
+                            <div className="mp-verification-banner pending">
+                                <div className="mp-verification-banner__info">
+                                    <div className="mp-verification-banner__icon"><Clock size={24} /></div>
+                                    <div>
+                                        <div className="mp-verification-banner__title">Verification Request Under Review</div>
+                                        <div className="mp-verification-banner__desc">Kwara L-PRES State Project Office is verifying your farm registration details.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="mp-verification-banner">
+                                <div className="mp-verification-banner__info">
+                                    <div className="mp-verification-banner__icon"><Award size={24} /></div>
+                                    <div>
+                                        <div className="mp-verification-banner__title">Request L-PRES Marketer Verification Badge</div>
+                                        <div className="mp-verification-banner__desc">Get verified by Kwara State L-PRES Office to boost buyer trust and feature your products state-wide.</div>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowVerificationModal(true)} className="btn-verify-request">
+                                    <ShieldCheck size={16} /> Apply for Badge
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Performance Stats Cards */}
+                        <div className="mp-profile-stats-grid">
+                            <div className="mp-stat-card">
+                                <div className="mp-stat-icon active-icon"><Package size={22} /></div>
+                                <div className="mp-stat-data">
+                                    <span className="mp-stat-val">{products.filter(p => p.status !== 'sold').length}</span>
+                                    <span className="mp-stat-label">Active Listings</span>
+                                </div>
+                            </div>
+
+                            <div className="mp-stat-card">
+                                <div className="mp-stat-icon inquiry-icon"><MessageCircle size={22} /></div>
+                                <div className="mp-stat-data">
+                                    <span className="mp-stat-val">4</span>
+                                    <span className="mp-stat-label">Buyer Requests</span>
+                                </div>
+                            </div>
+
+                            <div className="mp-stat-card">
+                                <div className="mp-stat-icon sales-icon"><CheckCircle2 size={22} /></div>
+                                <div className="mp-stat-data">
+                                    <span className="mp-stat-val">{products.filter(p => p.status === 'sold').length}</span>
+                                    <span className="mp-stat-label">Completed Sales</span>
+                                </div>
+                            </div>
+
+                            <div className="mp-stat-card">
+                                <div className="mp-stat-icon rating-icon"><Star size={22} /></div>
+                                <div className="mp-stat-data">
+                                    <span className="mp-stat-val">5.0 ⭐</span>
+                                    <span className="mp-stat-label">Seller Rating</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Management Tabs */}
+                        <div className="mp-profile-tabs">
+                            <button
+                                className={`mp-tab-btn ${profileTab === 'listings' ? 'active' : ''}`}
+                                onClick={() => setProfileTab('listings')}
+                            >
+                                📦 My Product Listings ({products.length})
+                            </button>
+                            <button
+                                className={`mp-tab-btn ${profileTab === 'inquiries' ? 'active' : ''}`}
+                                onClick={() => setProfileTab('inquiries')}
+                            >
+                                💬 Buyer Requests (4)
+                            </button>
+                            <button
+                                className={`mp-tab-btn ${profileTab === 'sales' ? 'active' : ''}`}
+                                onClick={() => setProfileTab('sales')}
+                            >
+                                🏷️ Sales History ({products.filter(p => p.status === 'sold').length})
+                            </button>
+                        </div>
+
+                        {/* Tab Body */}
+                        <div className="mp-profile-tab-content">
+                            {profileTab === 'listings' && (
+                                <div className="mp-profile-listings">
+                                    {products.length === 0 ? (
+                                        <div className="mp-empty-tab">
+                                            <Package size={40} />
+                                            <p>You haven't listed any products yet.</p>
+                                            <button
+                                                onClick={() => { setShowProfileModal(false); setShowAddModal(true); }}
+                                                className="btn-mp-primary"
+                                            >
+                                                <Plus size={16} /> Post Your First Product
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="mp-profile-items-list">
+                                            {products.map((item) => (
+                                                <div key={item._id || item.id} className="mp-profile-item-card">
+                                                    <img
+                                                        src={item.images?.[0] || 'https://images.unsplash.com/photo-1546445317-29f4545f9d52?w=300&q=80'}
+                                                        alt={item.name}
+                                                        className="mp-item-thumb"
+                                                    />
+                                                    <div className="mp-item-details">
+                                                        <h4>{item.name}</h4>
+                                                        <span className="mp-item-price">
+                                                            ₦{typeof item.price === 'object' ? (item.price?.amount || 0).toLocaleString() : Number(item.price || 0).toLocaleString()}
+                                                        </span>
+                                                        <div className="mp-item-meta">
+                                                            <span><MapPin size={12} /> {renderLocationText(item.location)}</span>
+                                                            <span className={`mp-status-pill ${item.status === 'sold' ? 'sold' : 'active'}`}>
+                                                                {item.status === 'sold' ? 'Sold Out' : 'Active Listing'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mp-item-actions">
+                                                        <button
+                                                            onClick={() => handleToggleStatus(item._id || item.id, item.status)}
+                                                            className={`btn-status-toggle ${item.status === 'sold' ? 'btn-reactivate' : 'btn-mark-sold'}`}
+                                                        >
+                                                            {item.status === 'sold' ? 'Mark Active' : 'Mark Sold'}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteProduct(item._id || item.id)}
+                                                            className="btn-item-delete"
+                                                            title="Delete Product"
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {profileTab === 'inquiries' && (
+                                <div className="mp-profile-inquiries-list">
+                                    <div className="mp-inquiry-card">
+                                        <div className="mp-inquiry-header">
+                                            <strong>Mallam Usman (Offa LGA)</strong>
+                                            <span className="mp-inquiry-date">Today at 09:30 AM</span>
+                                        </div>
+                                        <p className="mp-inquiry-text">Interested in purchasing 5 bags of Maize Grain. Is bulk discount available?</p>
+                                        <div className="mp-inquiry-actions">
+                                            <a href={`https://wa.me/${mUser.phone || '2348030000000'}?text=Hello%20Usman,%20regarding%20your%20Maize%20Grain%20inquiry`} target="_blank" rel="noopener noreferrer" className="btn-mp-whatsapp">
+                                                <MessageCircle size={14} /> Reply on WhatsApp
+                                            </a>
+                                            <a href={`tel:${mUser.phone || '08030000000'}`} className="btn-mp-call">
+                                                <Phone size={14} /> Call Buyer
+                                            </a>
+                                        </div>
+                                    </div>
+
+                                    <div className="mp-inquiry-card">
+                                        <div className="mp-inquiry-header">
+                                            <strong>Alhaji Bello (Ilorin West LGA)</strong>
+                                            <span className="mp-inquiry-date">Yesterday</span>
+                                        </div>
+                                        <p className="mp-inquiry-text">Inquiring about Bunaji Breeding Bulls delivery options to Ilorin Central Market.</p>
+                                        <div className="mp-inquiry-actions">
+                                            <a href={`https://wa.me/${mUser.phone || '2348030000000'}`} target="_blank" rel="noopener noreferrer" className="btn-mp-whatsapp">
+                                                <MessageCircle size={14} /> Reply on WhatsApp
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {profileTab === 'sales' && (
+                                <div className="mp-profile-sales-summary">
+                                    {products.filter(p => p.status === 'sold').length === 0 ? (
+                                        <div className="mp-empty-tab">
+                                            <CheckCircle2 size={40} />
+                                            <p>No items marked as sold yet.</p>
+                                            <span className="mp-empty-sub">When you mark a product as sold, it will appear in your sales history.</span>
+                                        </div>
+                                    ) : (
+                                        <div className="mp-sales-list">
+                                            {products.filter(p => p.status === 'sold').map(soldItem => (
+                                                <div key={soldItem._id || soldItem.id} className="mp-sale-row">
+                                                    <div className="mp-sale-info">
+                                                        <strong>{soldItem.name}</strong>
+                                                        <span>Completed sale • {renderLocationText(soldItem.location)}</span>
+                                                    </div>
+                                                    <div className="mp-sale-price">
+                                                        ₦{typeof soldItem.price === 'object' ? (soldItem.price?.amount || 0).toLocaleString() : Number(soldItem.price || 0).toLocaleString()}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Verification Request Modal */}
+            {showVerificationModal && mUser && (
+                <div className="mp-modal-backdrop" onClick={() => setShowVerificationModal(false)}>
+                    <div className="mp-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+                        <button className="mp-modal-close" onClick={() => setShowVerificationModal(false)}>
+                            <X size={20} />
+                        </button>
+                        <div className="mp-modal-header" style={{ textAlign: 'left', marginBottom: 20 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                <ShieldCheck size={24} style={{ color: '#059669' }} />
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Request L-PRES Verification Badge</h3>
+                            </div>
+                            <p style={{ fontSize: '0.875rem', color: '#64748b', margin: 0 }}>
+                                Submit your farm or cooperative details for verification by Kwara L-PRES State Project Office.
+                            </p>
+                        </div>
+
+                        {verificationSuccess ? (
+                            <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', color: '#047857', padding: '1.25rem', borderRadius: 8, textAlign: 'center', fontWeight: 600 }}>
+                                <ShieldCheck size={36} style={{ margin: '0 auto 10px auto', display: 'block', color: '#059669' }} />
+                                {verificationSuccess}
+                            </div>
+                        ) : (
+                            <form onSubmit={handleRequestVerification} className="mp-add-form">
+                                <div className="mp-form-group">
+                                    <label>Farm / Business Name *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={verificationFarmName}
+                                        onChange={(e) => setVerificationFarmName(e.target.value)}
+                                        placeholder="e.g. Danladi Fattening & Breeding Farm"
+                                    />
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Cooperative / Association Name (Optional)</label>
+                                    <input
+                                        type="text"
+                                        value={verificationCoopName}
+                                        onChange={(e) => setVerificationCoopName(e.target.value)}
+                                        placeholder="e.g. Offa Dairy Producers Cooperative Union"
+                                    />
+                                </div>
+
+                                <div className="mp-form-grid">
+                                    <div className="mp-form-group">
+                                        <label>NIN or Farmer Reg Number *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={verificationNin}
+                                            onChange={(e) => setVerificationNin(e.target.value)}
+                                            placeholder="e.g. NIN 12345678901 / KWR-LPRES-042"
+                                        />
+                                    </div>
+
+                                    <div className="mp-form-group">
+                                        <label>Kwara LGA Location</label>
+                                        <input
+                                            type="text"
+                                            disabled
+                                            value={`${mUser.lga || 'Ilorin East'} LGA`}
+                                            style={{ opacity: 0.85 }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Livestock Operations & Farm Description</label>
+                                    <textarea
+                                        rows={3}
+                                        value={verificationNotes}
+                                        onChange={(e) => setVerificationNotes(e.target.value)}
+                                        placeholder="Briefly describe your herd size, breed, livestock products, or farm location..."
+                                    />
+                                </div>
+
+                                <div className="mp-modal-actions" style={{ marginTop: 15 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowVerificationModal(false)}
+                                        className="btn-mp-cancel"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={verificationSubmitting}
+                                        className="btn-mp-primary"
+                                    >
+                                        {verificationSubmitting ? 'Submitting Request...' : 'Submit Verification Request'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Enterprise Trade Facilitation Request Modal */}
+            {showRequestModal && requestProduct && (
+                <div className="mp-modal-overlay" onClick={() => setShowRequestModal(false)}>
+                    <div className="mp-modal-content mp-enterprise-modal" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => setShowRequestModal(false)} className="mp-modal-close">
+                            <X size={20} />
+                        </button>
+
+                        <div className="mp-modal-header" style={{ textAlign: 'left', marginBottom: 16 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                                <ShieldCheck size={26} style={{ color: '#059669' }} />
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>Enterprise Trade Facilitation Request</h3>
+                            </div>
+                            <p style={{ fontSize: '0.875rem', color: '#64748b', margin: 0 }}>
+                                L-PRES acts as an official trade intermediary. We facilitate payment settlement, official health inspection, and supply chain logistics between buyer and seller.
+                            </p>
+                        </div>
+
+                        {reqSuccessData ? (
+                            <div className="mp-request-success-box">
+                                <CheckCircle2 size={48} className="mp-success-icon" style={{ color: '#059669', margin: '0 auto 12px auto' }} />
+                                <h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>Enterprise Request Received!</h4>
+                                <p style={{ color: '#334155', fontSize: '0.9rem', marginBottom: 14 }}>
+                                    Your request tracking ID is <strong style={{ color: '#047857', fontFamily: 'monospace', fontSize: '1rem' }}>{reqSuccessData.requestCode || reqSuccessData.data?.requestCode}</strong>
+                                </p>
+                                <div className="mp-success-details-card">
+                                    <div className="mp-detail-row">
+                                        <span>Product:</span> <strong>{requestProduct.name}</strong>
+                                    </div>
+                                    <div className="mp-detail-row">
+                                        <span>Status:</span> <span className="mp-status-pill pending">Pending L-PRES Intermediary Review</span>
+                                    </div>
+                                    {reqIncludeInspection && (
+                                        <div className="mp-detail-row" style={{ color: '#065f46', fontWeight: 600 }}>
+                                            <span>Official Health Inspection:</span> <strong>Requested (1% Fee Applied)</strong>
+                                        </div>
+                                    )}
+                                    {reqRequestSupplyChain && (
+                                        <div className="mp-detail-row" style={{ color: '#1e40af', fontWeight: 600 }}>
+                                            <span>Supply Chain Facilitation:</span> <strong>Requested (Logistics & Pickup)</strong>
+                                        </div>
+                                    )}
+                                </div>
+                                <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 16 }}>
+                                    An L-PRES Trade Officer will review your request, verify stock availability with {requestProduct.seller?.name || 'the seller'}, and contact you via phone ({reqBuyerPhone}) or email ({reqBuyerEmail}).
+                                </p>
+                                <button
+                                    onClick={() => setShowRequestModal(false)}
+                                    className="btn-mp-primary"
+                                    style={{ width: '100%', marginTop: 16 }}
+                                >
+                                    Close & Return to Marketplace
+                                </button>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleSubmitTradeRequest} className="mp-add-form">
+                                {reqError && (
+                                    <div className="mp-form-error" style={{ marginBottom: 14, background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 6, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <AlertCircle size={16} /> {reqError}
+                                    </div>
+                                )}
+
+                                {/* Product Summary Card */}
+                                <div className="mp-req-product-card">
+                                    <div className="mp-req-prod-header">
+                                        <span className="mp-req-category">{requestProduct.category || 'Livestock & Agro'}</span>
+                                        <span className="mp-req-badge"><ShieldCheck size={13} /> L-PRES Intermediary Managed</span>
+                                    </div>
+                                    <h4 className="mp-req-prod-title">{requestProduct.name}</h4>
+                                    <div className="mp-req-prod-meta">
+                                        <span>Seller: <strong>{requestProduct.seller?.name || 'Producer'}</strong></span>
+                                        <span>Location: <strong>{renderLocationText(requestProduct.location)}</strong></span>
+                                    </div>
+                                    <div className="mp-req-price-tag">
+                                        Unit Price: <strong>₦{(typeof requestProduct.price === 'object' ? requestProduct.price.amount : requestProduct.price)?.toLocaleString()}</strong> / {(typeof requestProduct.price === 'object' ? requestProduct.price.unit : 'unit')}
+                                    </div>
+                                </div>
+
+                                {/* Order & Facilitation Configurator */}
+                                <div className="mp-form-grid" style={{ marginTop: 14 }}>
+                                    <div className="mp-form-group">
+                                        <label>Quantity Required *</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            required
+                                            value={reqQty}
+                                            onChange={(e) => setReqQty(e.target.value)}
+                                            placeholder="e.g. 10"
+                                        />
+                                    </div>
+
+                                    <div className="mp-form-group">
+                                        <label>Estimated Total Order Value</label>
+                                        <div className="mp-calculated-total-box">
+                                            ₦{((typeof requestProduct.price === 'object' ? requestProduct.price.amount : Number(requestProduct.price || 0)) * (parseFloat(reqQty) || 1)).toLocaleString()}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Facilitation Options Toggles */}
+                                <div className="mp-facilitation-options-container">
+                                    <h5 className="mp-options-heading">L-PRES Enterprise Trade Options</h5>
+
+                                    <label className={`mp-checkbox-option-card ${reqIncludeInspection ? 'active-gold' : ''}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={reqIncludeInspection}
+                                            onChange={(e) => setReqIncludeInspection(e.target.checked)}
+                                        />
+                                        <div className="mp-option-text">
+                                            <div className="mp-option-title">
+                                                <span>Include Official L-PRES Veterinary & Quality Inspection</span>
+                                                <span className="mp-fee-badge">+1% Fee</span>
+                                            </div>
+                                            <p className="mp-option-desc">
+                                                L-PRES veterinary/agro officers perform physical quality & health inspection prior to fund release.
+                                                {reqIncludeInspection && (
+                                                    <span className="mp-fee-calc-highlight">
+                                                        Calculated Inspection Fee: ₦{Math.round(((typeof requestProduct.price === 'object' ? requestProduct.price.amount : Number(requestProduct.price || 0)) * (parseFloat(reqQty) || 1)) * 0.01).toLocaleString()} NGN
+                                                    </span>
+                                                )}
+                                            </p>
+                                        </div>
+                                    </label>
+
+                                    <label className={`mp-checkbox-option-card ${reqRequestSupplyChain ? 'active-blue' : ''}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={reqRequestSupplyChain}
+                                            onChange={(e) => setReqRequestSupplyChain(e.target.checked)}
+                                        />
+                                        <div className="mp-option-text">
+                                            <div className="mp-option-title">
+                                                <span>Request L-PRES Supply Chain & Logistics Facilitation</span>
+                                                <span className="mp-logistics-badge">Logistics</span>
+                                            </div>
+                                            <p className="mp-option-desc">
+                                                Request cold chain, haulage, or transport support from farm plot / grazing reserve directly to your designated delivery point.
+                                            </p>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                {/* Buyer Details */}
+                                <h5 className="mp-options-heading" style={{ marginTop: 16 }}>Buyer & Delivery Information</h5>
+                                <div className="mp-form-grid">
+                                    <div className="mp-form-group">
+                                        <label>Your Full Name *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={reqBuyerName}
+                                            onChange={(e) => setReqBuyerName(e.target.value)}
+                                            placeholder="e.g. Alhaji Ibrahim Dan-Bappa"
+                                        />
+                                    </div>
+                                    <div className="mp-form-group">
+                                        <label>Phone Number *</label>
+                                        <input
+                                            type="tel"
+                                            required
+                                            value={reqBuyerPhone}
+                                            onChange={(e) => setReqBuyerPhone(e.target.value)}
+                                            placeholder="e.g. 0803 123 4567"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mp-form-grid">
+                                    <div className="mp-form-group">
+                                        <label>Email Address *</label>
+                                        <input
+                                            type="email"
+                                            required
+                                            value={reqBuyerEmail}
+                                            onChange={(e) => setReqBuyerEmail(e.target.value)}
+                                            placeholder="e.g. buyer@example.com"
+                                        />
+                                    </div>
+                                    <div className="mp-form-group">
+                                        <label>Delivery LGA / Region *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={reqBuyerLga}
+                                            onChange={(e) => setReqBuyerLga(e.target.value)}
+                                            placeholder="e.g. Ilorin South / Offa"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Destination Address / Delivery Details</label>
+                                    <textarea
+                                        rows={2}
+                                        value={reqDeliveryLocation}
+                                        onChange={(e) => setReqDeliveryLocation(e.target.value)}
+                                        placeholder="Specific address, depot, feedlot, or pickup location instructions..."
+                                    />
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Additional Notes / Trade Requirements (Optional)</label>
+                                    <textarea
+                                        rows={2}
+                                        value={reqAdditionalNotes}
+                                        onChange={(e) => setReqAdditionalNotes(e.target.value)}
+                                        placeholder="Any specific weight, packaging, or health certificate requirements..."
+                                    />
+                                </div>
+
+                                <div className="mp-modal-actions" style={{ marginTop: 18 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowRequestModal(false)}
+                                        className="btn-mp-cancel"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={reqSubmitting}
+                                        className="btn-mp-primary btn-enterprise-submit"
+                                    >
+                                        {reqSubmitting ? 'Submitting Request...' : 'Submit Enterprise Trade Request'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Bid Modal */}
+            {showBidModal && bidProduct && (
+                <div className="mp-modal-overlay">
+                    <div className="mp-modal large">
+                        <button onClick={() => setShowBidModal(false)} className="mp-modal-close">
+                            <X size={20} />
+                        </button>
+
+                        <div className="mp-modal-title-box">
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#16a34a', background: 'rgba(22, 163, 74, 0.1)', padding: '0.3rem 0.8rem', borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>
+                                <DollarSign size={15} /> Official L-PRES Bidding Portal
+                            </div>
+                            <h2>Submit Price Bid / Counter-Offer</h2>
+                            <p>Propose your custom unit price or bulk offer to the seller and Kwara L-PRES Trade Facilitators.</p>
+                        </div>
+
+                        {bidSuccessData ? (
+                            <div className="mp-req-success">
+                                <CheckCircle2 size={48} className="mp-success-icon" />
+                                <h3>Bid Submitted Successfully!</h3>
+                                <p className="mp-req-code">Bid Reference Code: <strong>{bidSuccessData.bidCode}</strong></p>
+                                <p className="mp-req-notice">
+                                    Your bid has been recorded. Kwara State L-PRES Trade Desk and the seller will review your offer and notify you via email.
+                                </p>
+                                <button
+                                    onClick={() => { setShowBidModal(false); setBidSuccessData(null); }}
+                                    className="btn-mp-primary"
+                                >
+                                    Done
+                                </button>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleSubmitBid} className="mp-add-form">
+                                <div className="mp-req-summary-card">
+                                    <img
+                                        src={bidProduct.images?.[0] || 'https://images.unsplash.com/photo-1546445317-29f4545f9d52?w=300&q=80'}
+                                        alt={bidProduct.name}
+                                        className="mp-req-summary-img"
+                                    />
+                                    <div className="mp-req-summary-info">
+                                        <h4>{bidProduct.name}</h4>
+                                        <div className="mp-req-summary-meta">
+                                            <span>Category: <strong>{bidProduct.category || 'Agro Produce'}</strong></span>
+                                            <span>Listed Price: <strong>₦{typeof bidProduct.price === 'object' ? (bidProduct.price.amount || 0).toLocaleString() : Number(bidProduct.price || 0).toLocaleString()} {typeof bidProduct.price === 'object' ? bidProduct.price.unit : 'unit'}</strong></span>
+                                            <span>Seller: <strong>{bidProduct.seller?.name || 'Kwara Producer'}</strong></span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {bidError && (
+                                    <div className="mp-form-error">
+                                        <AlertCircle size={16} /> {bidError}
+                                    </div>
+                                )}
+
+                                <div className="mp-form-grid">
+                                    <div className="mp-form-group">
+                                        <label>Your Proposed Unit Price (₦) *</label>
+                                        <input
+                                            type="number"
+                                            required
+                                            min="1"
+                                            value={bidAmountInput}
+                                            onChange={(e) => setBidAmountInput(e.target.value)}
+                                            placeholder="e.g. 42000"
+                                        />
+                                    </div>
+                                    <div className="mp-form-group">
+                                        <label>Offered Quantity *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={bidQtyInput}
+                                            onChange={(e) => setBidQtyInput(e.target.value)}
+                                            placeholder="e.g. 5 bags, 2 head, etc."
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Bid Rationale / Buyer Notes (Optional)</label>
+                                    <textarea
+                                        rows={3}
+                                        value={bidNotesInput}
+                                        onChange={(e) => setBidNotesInput(e.target.value)}
+                                        placeholder="Explain reason for counter-offer, bulk commitment, pickup schedule, or terms..."
+                                    />
+                                </div>
+
+                                <div className="mp-modal-actions" style={{ marginTop: 18 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowBidModal(false)}
+                                        className="btn-mp-cancel"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={bidSubmitting}
+                                        className="btn-mp-primary btn-enterprise-submit"
+                                    >
+                                        {bidSubmitting ? 'Submitting Bid...' : 'Submit Official Bid'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Verification Request Modal */}
+            {showVerificationModal && (
+                <div className="mp-modal-overlay">
+                    <div className="mp-modal large">
+                        <button onClick={() => setShowVerificationModal(false)} className="mp-modal-close">
+                            <X size={20} />
+                        </button>
+
+                        <div className="mp-modal-title-box">
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '0.3rem 0.8rem', borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>
+                                <ShieldCheck size={15} /> Kwara L-PRES Verification Service
+                            </div>
+                            <h2>Request L-PRES Verification Badge</h2>
+                            <p>Submit your farm or cooperative details for verification by Kwara L-PRES State Project Office.</p>
+                        </div>
+
+                        {verificationSuccess ? (
+                            <div className="mp-req-success">
+                                <CheckCircle2 size={48} className="mp-success-icon" />
+                                <h3>Verification Request Submitted!</h3>
+                                <p className="mp-req-notice">{verificationSuccess}</p>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleRequestVerification} className="mp-add-form">
+                                <div className="mp-form-grid">
+                                    <div className="mp-form-group">
+                                        <label>Farm / Business Name *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={verificationFarmName}
+                                            onChange={(e) => setVerificationFarmName(e.target.value)}
+                                            placeholder="e.g. Danladi Fattening & Breeding Farm"
+                                        />
+                                    </div>
+                                    <div className="mp-form-group">
+                                        <label>Cooperative / Association Name (Optional)</label>
+                                        <input
+                                            type="text"
+                                            value={verificationCoopName}
+                                            onChange={(e) => setVerificationCoopName(e.target.value)}
+                                            placeholder="e.g. Offa Dairy Producers Cooperative Union"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="mp-form-grid">
+                                    <div className="mp-form-group">
+                                        <label>NIN or Farmer Reg Number *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={verificationNin}
+                                            onChange={(e) => setVerificationNin(e.target.value)}
+                                            placeholder="e.g. NIN 12345678901 / KWR-LPRES-042"
+                                        />
+                                    </div>
+                                    <div className="mp-form-group">
+                                        <label>Kwara LGA Location *</label>
+                                        <select
+                                            value={verificationLga}
+                                            onChange={(e) => setVerificationLga(e.target.value)}
+                                            required
+                                        >
+                                            <option value="Kaiama">Kaiama LGA</option>
+                                            <option value="Asa">Asa LGA</option>
+                                            <option value="Baruten">Baruten LGA</option>
+                                            <option value="Edu">Edu LGA</option>
+                                            <option value="Ekiti">Ekiti LGA</option>
+                                            <option value="Ifelodun">Ifelodun LGA</option>
+                                            <option value="Ilorin East">Ilorin East LGA</option>
+                                            <option value="Ilorin South">Ilorin South LGA</option>
+                                            <option value="Ilorin West">Ilorin West LGA</option>
+                                            <option value="Isin">Isin LGA</option>
+                                            <option value="Moro">Moro LGA</option>
+                                            <option value="Offa">Offa LGA</option>
+                                            <option value="Oke Ero">Oke Ero LGA</option>
+                                            <option value="Oyun">Oyun LGA</option>
+                                            <option value="Pategi">Pategi LGA</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="mp-form-group">
+                                    <label>Livestock Operations & Farm Description</label>
+                                    <textarea
+                                        rows={3}
+                                        value={verificationNotes}
+                                        onChange={(e) => setVerificationNotes(e.target.value)}
+                                        placeholder="Briefly describe your herd size, breed, livestock products, or farm location..."
+                                    />
+                                </div>
+
+                                <div className="mp-modal-actions" style={{ marginTop: 18 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowVerificationModal(false)}
+                                        className="btn-mp-cancel"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={verificationSubmitting}
+                                        className="btn-mp-primary"
+                                    >
+                                        {verificationSubmitting ? 'Submitting Verification Request...' : 'Submit Verification Request'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
+
+        </div>
+    );
+}

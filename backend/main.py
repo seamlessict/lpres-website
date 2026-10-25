@@ -4,46 +4,144 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from database import engine
 import models
-from routers import admin, news, gallery, projects
+from routers import admin, news, gallery, projects, marketplace, upload
 from auth import get_password_hash
 from database import SessionLocal
 
-os.makedirs("uploads", exist_ok=True)
+import tempfile
+
+uploads_dir = os.path.join(tempfile.gettempdir(), "uploads")
+try:
+    os.makedirs(uploads_dir, exist_ok=True)
+except Exception:
+    pass
 
 app = FastAPI(title="LPRES Website API", version="1.0.0")
 
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "https://lpres-website.onrender.com",
+    "https://lpress-website.onrender.com",
+    "https://lpres-marketplace.onrender.com",
+    "https://lpres.onrender.com",
+    "https://lpres.kw.gov.ng",
+    "https://www.lpres.kw.gov.ng",
+    "https://market.lpres.kw.gov.ng",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://localhost:\d+",
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-models.Base.metadata.create_all(bind=engine)
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    origin = request.headers.get("origin", "*")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "detail": exc.detail},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "*"
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    origin = request.headers.get("origin", "*")
+    return JSONResponse(
+        status_code=422,
+        content={"success": False, "detail": exc.errors()},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "*"
+        }
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"[GLOBAL EXCEPTION HANDLER] {request.url}: {exc}")
+    origin = request.headers.get("origin", "*")
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "detail": str(exc)},
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "*"
+        }
+    )
+
+
+
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception as db_init_err:
+    print(f"[STARTUP DB WARNING] models.Base.metadata.create_all: {db_init_err}")
 
 
 def run_migrations():
-    from sqlalchemy import text
-    db = SessionLocal()
     try:
-        result = db.execute(text("PRAGMA table_info(projects)"))
-        col_names = [row[1] for row in result.fetchall()]
-        if "images" not in col_names:
+        from sqlalchemy import text
+        db = SessionLocal()
+        
+        # Migrate marketplace_users table columns
+        user_columns = [
+            ("is_verified", "BOOLEAN DEFAULT FALSE"),
+            ("verification_status", "VARCHAR(50) DEFAULT 'unverified'"),
+            ("verification_details", "TEXT DEFAULT '{}'"),
+        ]
+        
+        for col_name, col_type in user_columns:
+            try:
+                db.execute(text(f"ALTER TABLE marketplace_users ADD COLUMN {col_name} {col_type}"))
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        try:
             db.execute(text("ALTER TABLE projects ADD COLUMN images TEXT DEFAULT '[]'"))
             db.commit()
-    except Exception:
-        pass
-    finally:
+        except Exception:
+            db.rollback()
+
+        try:
+            db.execute(text("DELETE FROM marketplace_products WHERE name LIKE '%Bunaji Bulls%'"))
+            db.commit()
+        except Exception:
+            db.rollback()
+            
         db.close()
+    except Exception as e:
+        print(f"[MIGRATION WARNING] {e}")
 
 
-run_migrations()
+try:
+    run_migrations()
+except Exception as e:
+    print(f"[STARTUP MIGRATION WARNING] {e}")
 
 app.include_router(admin.router)
 app.include_router(news.router)
 app.include_router(gallery.router)
 app.include_router(projects.router)
+app.include_router(marketplace.router)
+app.include_router(upload.router)
 
 
 def seed_default_admin():
@@ -63,11 +161,45 @@ def seed_default_admin():
             db.add(admin_user)
             db.commit()
             print("Default admin created: username=admin")
+    except Exception as e:
+        print(f"Default admin seed skipped: {e}")
+        db.rollback()
     finally:
         db.close()
 
 
-seed_default_admin()
+try:
+    seed_default_admin()
+except Exception as e:
+    print(f"[STARTUP SEED WARNING] seed_default_admin: {e}")
+
+
+def seed_marketplace_admin():
+    seed_password = os.environ.get("MARKETPLACE_ADMIN_SEED_PASSWORD", "MarketplaceAdmin2026!")
+    db = SessionLocal()
+    try:
+        existing = db.query(models.MarketplaceAdmin).filter(models.MarketplaceAdmin.username == "marketplace_admin").first()
+        if not existing:
+            m_admin = models.MarketplaceAdmin(
+                username="marketplace_admin",
+                email="marketplace.admin@lpres.kw.gov.ng",
+                hashed_password=get_password_hash(seed_password),
+                is_active=True
+            )
+            db.add(m_admin)
+            db.commit()
+            print("Default marketplace admin created: username=marketplace_admin")
+    except Exception as e:
+        print(f"Marketplace admin seed skipped: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+try:
+    seed_marketplace_admin()
+except Exception as e:
+    print(f"[STARTUP SEED WARNING] seed_marketplace_admin: {e}")
 
 
 def seed_sample_data():
@@ -109,7 +241,45 @@ def seed_sample_data():
             models.GalleryItem(title="State Project Coordination Meeting", file_url="/api/projects/uploads/seed_spc.png", thumbnail_url="/api/projects/uploads/seed_spc.png", media_type="photo", category="Outreach", is_published=True, sort_order=2, description="Senior L-PRES officials and LGA coordinators reviewing Q2 implementation targets at the State Project Office."),
             models.GalleryItem(title="Kwara State Livestock Map Infographic", file_url="/api/projects/uploads/seed_video.mp4", thumbnail_url="/api/projects/uploads/seed_spc.png", media_type="video", category="Field Work", is_published=True, sort_order=4, description="L-PRES project area coverage and key infrastructure sites mapped across all 16 LGAs of Kwara State."),
         ]
-        for item in sample_projects + sample_gallery:
+        sample_marketplace = [
+            models.MarketplaceProduct(
+                name="Fresh Pasteurised Dairy Milk",
+                description="Daily harvested fresh raw and pasteurised cow milk produced at Offa Dairy Cold Chain Hub under strict L-PRES hygiene protocols.",
+                category="Livestock",
+                price={"amount": 1200, "currency": "NGN", "unit": "per Litre"},
+                quantity={"available": 250, "unit": "Litres"},
+                location={"region": "Offa", "country": "Nigeria"},
+                images=[{"url": "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&q=80", "alt": "Fresh Dairy Milk", "isPrimary": True}],
+                specifications={"isOrganic": True, "variety": "Fresh Holstein-Bunaji Cross", "grade": "Premium Grade"},
+                seller={"userId": "seed-2", "name": "Offa Women Dairy Cooperative", "isVerified": True, "contact": {"phone": "+234 805 987 6543", "email": "offa.dairy@lpres-coop.ng", "whatsapp": "+234 805 987 6543"}},
+                status="active"
+            ),
+            models.MarketplaceProduct(
+                name="High-Nutrient Stylosanthes Hay Bales",
+                description="Nutritious cultivated leguminous forage pasture hay bales harvested from Baruten Grazing Reserve plots. High protein content suitable for dairy & beef cattle.",
+                category="Feed & Fodder",
+                price={"amount": 4500, "currency": "NGN", "unit": "per bale"},
+                quantity={"available": 400, "unit": "bales"},
+                location={"region": "Baruten", "country": "Nigeria"},
+                images=[{"url": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800&q=80", "alt": "Hay Bales", "isPrimary": True}],
+                specifications={"isOrganic": True, "variety": "Stylosanthes hamata", "grade": "Class 1 Feed"},
+                seller={"userId": "seed-3", "name": "Baruten Pastoralist Support Union", "isVerified": True, "contact": {"phone": "+234 812 345 6789", "email": "baruten.pasture@lpres-coop.ng", "whatsapp": "+234 812 345 6789"}},
+                status="active"
+            ),
+            models.MarketplaceProduct(
+                name="Hybrid Yellow Maize (Dried Grain)",
+                description="Clean, well-dried 50kg bags of yellow grain maize harvested in Edu LGA. Moisture content < 12%, perfect for livestock feed formulation.",
+                category="Cereals",
+                price={"amount": 48000, "currency": "NGN", "unit": "per 50kg bag"},
+                quantity={"available": 120, "unit": "bags"},
+                location={"region": "Edu", "country": "Nigeria"},
+                images=[{"url": "https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=800&q=80", "alt": "Yellow Maize", "isPrimary": True}],
+                specifications={"isOrganic": False, "variety": "SAMMAZ 15 Hybrid", "grade": "Grade A"},
+                seller={"userId": "seed-4", "name": "Mallam Usman Pategi", "isVerified": False, "contact": {"phone": "+234 814 555 7788", "email": "usman.pategi@lpres-farmers.ng", "whatsapp": "+234 814 555 7788"}},
+                status="active"
+            )
+        ]
+        for item in sample_projects + sample_gallery + sample_marketplace:
             db.add(item)
         db.commit()
         print("Sample data seeded")
@@ -120,7 +290,10 @@ def seed_sample_data():
         db.close()
 
 
-seed_sample_data()
+try:
+    seed_sample_data()
+except Exception as e:
+    print(f"[STARTUP SEED WARNING] seed_sample_data: {e}")
 
 
 @app.get("/")

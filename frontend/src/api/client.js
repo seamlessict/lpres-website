@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { DEFAULT_API_URL } from '../utils/env';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+export const API_BASE = DEFAULT_API_URL;
 
 const api = axios.create({ baseURL: API_BASE });
 
@@ -45,24 +46,31 @@ export const adminAPI = {
   me: () => api.get('/api/admin/me'),
 };
 
+export const adminMarketplaceAPI = {
+  getVerifications: () => api.get('/api/admin/marketplace/verifications'),
+  actionVerification: (userId, action, reason = '') => api.post(`/api/admin/marketplace/verifications/${userId}/action`, { action, reason }),
+  getRequests: (statusFilter = '') => api.get(`/api/admin/marketplace/requests${statusFilter ? `?status_filter=${statusFilter}` : ''}`),
+  updateRequestStatus: (requestId, status, notes = '') => api.patch(`/api/admin/marketplace/requests/${requestId}`, { status, admin_notes: notes }),
+};
+
 const multipart = { headers: { 'Content-Type': 'multipart/form-data' } };
 
 export const galleryAPI = {
-  list:       (params = {}) => api.get('/api/gallery/', { params }),
-  categories: ()            => api.get('/api/gallery/categories'),
-  adminList:  (skip = 0)    => api.get(`/api/gallery/admin/all?skip=${skip}`),
-  upload:     (fd)          => api.post('/api/gallery/admin/upload', fd, multipart),
-  update:     (id, fd)      => api.put(`/api/gallery/admin/${id}`, fd, multipart),
-  togglePublish: (id)       => api.patch(`/api/gallery/admin/${id}/publish`),
-  delete:     (id)          => api.delete(`/api/gallery/admin/${id}`),
+  list: (params = {}) => api.get('/api/gallery/', { params }),
+  categories: () => api.get('/api/gallery/categories'),
+  adminList: (skip = 0) => api.get(`/api/gallery/admin/all?skip=${skip}`),
+  upload: (fd) => api.post('/api/gallery/admin/upload', fd, multipart),
+  update: (id, fd) => api.put(`/api/gallery/admin/${id}`, fd, multipart),
+  togglePublish: (id) => api.patch(`/api/gallery/admin/${id}/publish`),
+  delete: (id) => api.delete(`/api/gallery/admin/${id}`),
 };
 
 export const projectsAPI = {
-  list:         (params = {}) => api.get('/api/projects/', { params }),
-  get:          (id)          => api.get(`/api/projects/${id}`),
-  adminList:    (skip = 0)    => api.get(`/api/projects/admin/all?skip=${skip}`),
-  create:       (fd)          => api.post('/api/projects/admin/', fd, multipart),
-  update:       (id, fd)      => api.put(`/api/projects/admin/${id}`, fd, multipart),
-  togglePublish:(id)          => api.patch(`/api/projects/admin/${id}/publish`),
-  delete:       (id)          => api.delete(`/api/projects/admin/${id}`),
+  list: (params = {}) => api.get('/api/projects/', { params }),
+  get: (id) => api.get(`/api/projects/${id}`),
+  adminList: (skip = 0) => api.get(`/api/projects/admin/all?skip=${skip}`),
+  create: (fd) => api.post('/api/projects/admin/', fd, multipart),
+  update: (id, fd) => api.put(`/api/projects/admin/${id}`, fd, multipart),
+  togglePublish: (id) => api.patch(`/api/projects/admin/${id}/publish`),
+  delete: (id) => api.delete(`/api/projects/admin/${id}`),
 };

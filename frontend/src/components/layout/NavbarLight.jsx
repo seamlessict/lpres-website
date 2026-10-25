@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
+import { GDSS_PORTAL_URL } from '../../utils/env';
 import './NavbarLight.css';
 
 const NAV_LINKS = [
-  { label: 'Home',         href: '/home-light' },
-  { label: 'About',        href: '#hl-about' },
+  { label: 'Home', href: '/home-light' },
+  { label: 'About', href: '#hl-about' },
   { label: 'Value Chains', href: '#hl-programs' },
-  { label: 'Mission',      href: '#hl-mission' },
-  { label: 'Team',         href: '#hl-team' },
-  { label: 'Media',        href: '#hl-news' },
-  { label: 'Contact',      href: '#hl-contact' },
+  { label: 'Mission', href: '#hl-mission' },
+  { label: 'Team', href: '#hl-team' },
+  { label: 'Media', href: '#hl-news' },
+  { label: 'Contact', href: '#hl-contact' },
 ];
 
 export default function NavbarLight() {
-  const [open, setOpen]         = useState(false);
+  const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
 
@@ -65,7 +66,8 @@ export default function NavbarLight() {
         </ul>
 
         <div className="nl-nav__actions">
-          <Link to="/gdss" className="nl-btn-gdss">GDSS Portal</Link>
+          <a href={import.meta.env.VITE_MARKETPLACE_URL || "https://lpres-marketplace.onrender.com/"} target="_blank" rel="noopener noreferrer" className="nl-btn-marketplace">Marketplace</a>
+          <a href={GDSS_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="nl-btn-gdss">GDSS Portal</a>
         </div>
 
         <button className="nl-nav__burger" onClick={() => setOpen(!open)} aria-label="Toggle menu">
@@ -85,9 +87,12 @@ export default function NavbarLight() {
                 <Link key={link.label} to={link.href} className="nl-nav__mobile-link">{link.label}</Link>
               )
             )}
-            <Link to="/gdss" className="nl-btn-gdss" style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+            <a href={import.meta.env.VITE_MARKETPLACE_URL || "https://lpres-marketplace.onrender.com/"} target="_blank" rel="noopener noreferrer" className="nl-btn-marketplace" style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+              Marketplace Portal
+            </a>
+            <a href={GDSS_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="nl-btn-gdss" style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>
               GDSS Portal
-            </Link>
+            </a>
           </div>
         </div>
       )}
